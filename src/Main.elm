@@ -8,6 +8,7 @@ import Svg exposing (Svg, svg, rect, circle, polygon)
 import Svg.Attributes exposing (width, height, viewBox, x, y, rx, ry, cx, cy, r, points, fill, stroke)
 
 import Vector exposing (..)
+import Input
 
 
 
@@ -15,12 +16,12 @@ import Vector exposing (..)
 
 main : Program () Model Msg
 main =
-    Browser.element
-        { init = \_->( initialModel, Cmd.none )
-        , view = view
-        , update = update
-        , subscriptions = subscriptions
-        }
+  Browser.element
+    { init = \_->( initialModel, Cmd.none )
+    , view = view
+    , update = update
+    , subscriptions = subscriptions
+    }
 
 
 
@@ -31,11 +32,16 @@ type alias Model =
   , lFlipper : Flipper
   , rFlipper : Flipper
   , fixedPoints : List FixedPointCollider
+  , input : Input.KeySet
   }
 
 updateBall : (MovingPoint -> MovingPoint) -> Model -> Model
 updateBall updater model =
   { model | ball = updater model.ball }
+
+updateInput : (Input.KeySet -> Input.KeySet) -> Model -> Model
+updateInput updater model =
+  { model | input = updater model.input }
 
 updateLFlipper : (Flipper -> Flipper) -> Model -> Model
 updateLFlipper updater model =
@@ -117,7 +123,7 @@ initialModel =
       , y = 50.0
       }
     , v =
-      { x = 0.125
+      { x = 0.1
       , y = 0.0
       }
     }
@@ -142,21 +148,24 @@ initialModel =
     , collisions = flipperShape
     }
   , fixedPoints =
-       arc { x = 120.0, y = 110.0 } 100.0 (2.44, 6.98) 0.05
-    ++ arc { x = 120.0, y = 110.0 }  80.0 (2.64, 6.78) 0.06
+    [ arc { x = 120.0, y = 110.0 } 100.0 (2.44, 6.98) 0.05
+    , arc { x = 120.0, y = 110.0 }  80.0 (2.64, 6.78) 0.06
 
-    ++ line { x =  43.0, y = 175.0 } { x =  43.0, y = 210.0 } 5.0
-    ++ line { x =  43.0, y = 210.0 } { x =  20.0, y = 230.0 } 5.0
-    ++ line { x =  20.0, y = 230.0 } { x =  20.0, y = 320.0 } 5.0
-    ++ line { x =  43.0, y = 235.0 } { x =  43.0, y = 270.0 } 5.0
-    ++ line { x =  43.0, y = 270.0 } { x =  80.0, y = 285.0 } 5.0
+    , line { x =  43.0, y = 175.0 } { x =  43.0, y = 210.0 } 5.0
+    , line { x =  43.0, y = 210.0 } { x =  20.0, y = 230.0 } 5.0
+    , line { x =  20.0, y = 230.0 } { x =  20.0, y = 320.0 } 5.0
+    , line { x =  43.0, y = 235.0 } { x =  43.0, y = 270.0 } 5.0
+    , line { x =  43.0, y = 270.0 } { x =  80.0, y = 285.0 } 5.0
 
-    ++ line { x = 197.0, y = 175.0 } { x = 197.0, y = 210.0 } 5.0
-    ++ line { x = 197.0, y = 210.0 } { x = 220.0, y = 230.0 } 5.0
-    ++ line { x = 220.0, y = 230.0 } { x = 220.0, y = 320.0 } 5.0
-    ++ line { x = 197.0, y = 235.0 } { x = 197.0, y = 270.0 } 5.0
-    ++ line { x = 197.0, y = 270.0 } { x = 160.0, y = 285.0 } 5.0
+    , line { x = 197.0, y = 175.0 } { x = 197.0, y = 210.0 } 5.0
+    , line { x = 197.0, y = 210.0 } { x = 220.0, y = 230.0 } 5.0
+    , line { x = 220.0, y = 230.0 } { x = 220.0, y = 320.0 } 5.0
+    , line { x = 197.0, y = 235.0 } { x = 197.0, y = 270.0 } 5.0
+    , line { x = 197.0, y = 270.0 } { x = 160.0, y = 285.0 } 5.0
+    ]
+      |> List.concat
       |> List.map (\p -> { p = p, r = wallRebound })
+  , input = Input.empty
   }
 
 flipperShape =
@@ -203,7 +212,7 @@ arc center radius (start, end) gap =
 
 type Msg
   = Tick Float
-  | KeyInput Input
+  | InputUpdate Input.KeySet
   | None
 
 type Input
@@ -217,31 +226,25 @@ type UpDown
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-      KeyInput event ->
+      InputUpdate status ->
         let
-          lFlipperUpdater f m =
-            { m | lFlipper = f m.lFlipper }
-          rFlipperUpdater f m =
-            { m | rFlipper = f m.rFlipper }
-
           omegaUpdater o f =
             { f | omega = o }
 
-          flipperUpdater_ =
-            (\o ->
-              case event of
-                LFlipper _ -> lFlipperUpdater (omegaUpdater o)
-                RFlipper _ -> rFlipperUpdater (omegaUpdater o)
-            )
+          lFlipper =
+            model.lFlipper
+              |> omegaUpdater (if Input.member Input.LFlipper status then -flipperSpeed else flipperSpeed)
+          
+          rFlipper =
+            model.rFlipper
+              |> omegaUpdater (if Input.member Input.RFlipper status then flipperSpeed else -flipperSpeed)
 
-          omega =
-            case event of
-              LFlipper Up   -> flipperSpeed
-              RFlipper Down -> flipperSpeed
-              LFlipper Down -> -flipperSpeed
-              RFlipper Up   -> -flipperSpeed
+          model_ =
+            model
+              |> updateInput (\_ -> status)
+              |> updateLFlipper (\_ -> lFlipper)
+              |> updateRFlipper (\_ -> rFlipper)
 
-          model_ = flipperUpdater_ omega model
         in
           ( model_
           , Cmd.none
@@ -296,7 +299,8 @@ updatePinball maxElapse updateCount model =
     let
       ( impactTime, collisionEffect ) =
         getCollisionCandidates model
-          |> List.filter (\c -> closing c.collision model.ball) -- TODO めり込んだ時の処理
+        -- TODO フリッパーと小さい相対速度で衝突したとき貫通する場合への対処
+          |> List.filter (\c -> closing c.collision model.ball) 
           |> List.map (predictImpact model.ball)
           |> List.filter (\( f, _ ) -> f > 0.0 )
           |> minBy Tuple.first ( maxElapse, (\m -> m) )
@@ -392,10 +396,8 @@ getImpactTime target ball =
     b = 2 * dot pr vr
     c = dot pr pr - ballRarius * ballRarius
 
-    i = -2 * c / (b - sqrt(b*b-4*a*c))
-    i_ = if i < 0.0 then 0.01 else i
   in
-    i_
+    -2 * c / (b - sqrt(b*b-4*a*c))
 
 flipperToMovingPointCollider flipper =
   let
@@ -426,10 +428,11 @@ view model =
     , viewBox "0 0 240 320"
     ]
     ( List.concat
-      (  [model.ball        |> ballView]
-      ++ (model.lFlipper    |> flipperView)
-      ++ (model.rFlipper    |> flipperView)
-      ++ (model.fixedPoints |> List.map fixedPointColliderView))
+      [ model.ball        |> ballView
+      , model.lFlipper    |> flipperView
+      , model.rFlipper    |> flipperView
+      , model.fixedPoints |> List.map fixedPointColliderView |> List.concat
+      ]
     )
   ]
 
@@ -444,6 +447,7 @@ ballView ball =
     []
   ]
 
+flipperView : Flipper -> List (Svg msg)
 flipperView flipper =
   let
     matrix =
@@ -456,6 +460,7 @@ flipperView flipper =
           { p = p, r = flipperRebound })
   in
     List.map fixedPointColliderView collisions
+      |> List.concat
 
 fixedPointColliderView : FixedPointCollider -> List (Svg msg)
 fixedPointColliderView fixed =
@@ -487,25 +492,15 @@ reboundToColor r =
 subscriptions : Model -> Sub Msg
 subscriptions model =
   Sub.batch
-    [ onKeyDown keyDownDecoder
-    , onKeyUp keyUpDecoder
+    [ Input.decoder InputUpdate keyConfig model.input
     , onAnimationFrameDelta Tick
     ]
 
-keyDownDecoder =
-  (field "key" string)
-    |> Json.map keyConfig
-    |> Json.map (Maybe.map (\k -> KeyInput (k Down)) >> Maybe.withDefault None)
-
-keyUpDecoder =
-  (field "key" string)
-    |> Json.map keyConfig
-    |> Json.map (Maybe.map (\k -> KeyInput (k Up)) >> Maybe.withDefault None)
-
+keyConfig : String -> Maybe Input.Key 
 keyConfig str =
   case str of
-    "z" -> Just LFlipper
-    "." -> Just RFlipper
+    "z" -> Just Input.LFlipper
+    "." -> Just Input.RFlipper
     _ -> Nothing
 
 
